@@ -24,8 +24,8 @@ class MICNModel(nn.Module):
     self.mic = MICLayers(input_len=input_len, output_len=output_len,
                          d_model=d_model, n_layers=n_layers, scales=scales)
 
-  def forward(self, X):  # X: [B, 1, L]
-    Xt, Xs = self.decomp(X)                  # [B,1,L], [B,1,L]
-    Ytrend = self.trend(Xt)                  # [B,1,O]
-    Yseasonal = self.mic(Xs)                 # [B,1,O]
+  def forward(self, X):
+    Xt, Xs = self.decomp(X)
+    Ytrend = self.trend(Xt)
+    Yseasonal = self.mic(Xs)
     return Ytrend + Yseasonal, Ytrend, Yseasonal

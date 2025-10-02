@@ -17,6 +17,7 @@ def split_data(X, Y, train_ratio=0.7, val_ratio=0.1):
   n = len(X)
   n_train = int(n * train_ratio)
   n_val = int(n * val_ratio)
+
   X_train, Y_train = X[:n_train], Y[:n_train]
   X_val, Y_val = X[n_train:n_train+n_val], Y[n_train:n_train+n_val]
   X_test, Y_test = X[n_train+n_val:], Y[n_train+n_val:]
@@ -38,8 +39,8 @@ class WindowDataset(Dataset):
     return len(self.X)
 
   def __getitem__(self, idx):
-    x = torch.tensor(self.X[idx], dtype=torch.float32).unsqueeze(0)  # [1, L]
-    y = torch.tensor(self.Y[idx], dtype=torch.float32).unsqueeze(0)  # [1, O]
+    x = torch.tensor(self.X[idx], dtype=torch.float32).unsqueeze(0)
+    y = torch.tensor(self.Y[idx], dtype=torch.float32).unsqueeze(0)
     return x, y
 
 

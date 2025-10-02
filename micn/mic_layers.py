@@ -22,17 +22,14 @@ class _MICBranch(nn.Module):
     self.local_conv = nn.Conv1d(d_model, d_model, kernel_size=3, padding=1)
 
     # El largo reducido tras pool:
-    self.reduced_len = math.floor(
-        (self.ext_len - scale)/scale + 1) if self.ext_len >= scale else 1
+    self.reduced_len = math.floor((self.ext_len - scale)/scale + 1) if self.ext_len >= scale else 1
     self.reduced_len = max(1, self.reduced_len)
 
     # Global isometric conv: kernel abarca toda la secuencia reducida
-    self.global_conv = nn.Conv1d(
-        d_model, d_model, kernel_size=self.reduced_len, padding=0)
+    self.global_conv = nn.Conv1d(d_model, d_model, kernel_size=self.reduced_len, padding=0)
 
     # Upsampling para volver a longitud extendida
-    self.up = nn.ConvTranspose1d(
-        d_model, d_model, kernel_size=scale, stride=scale)
+    self.up = nn.ConvTranspose1d(d_model, d_model, kernel_size=scale, stride=scale)
 
     self.norm = nn.LayerNorm(d_model)
     self.act = nn.GELU()
@@ -87,11 +84,9 @@ class MICLayers(nn.Module):
     self.value_emb = nn.Conv1d(1, d_model, kernel_size=1)
 
     # Construimos ramas por escala (en cada capa MIC)
-    self.layers = nn.ModuleList([
-        nn.ModuleList([_MICBranch(d_model, input_len, output_len, s)
-                      for s in scales])
-        for _ in range(n_layers)
-    ])
+    self.layers = nn.ModuleList([nn.ModuleList([_MICBranch(d_model, input_len, output_len, s) for s in scales])
+                                 for _ in range(n_layers)
+                                 ])
 
     # Proyección final d_model→1
     self.head = nn.Conv1d(d_model, 1, kernel_size=1)
@@ -103,17 +98,17 @@ class MICLayers(nn.Module):
     # Extender con ceros para cubrir el futuro
     zeros = torch.zeros(B, 1, self.output_len,
                         device=Xs.device, dtype=Xs.dtype)
-    Xext = torch.cat([Xs, zeros], dim=-1)           # [B, 1, L+O]
+    Xext = torch.cat([Xs, zeros], dim=-1)
 
     # Embedding
-    Z = self.value_emb(Xext)                        # [B, d, L+O]
+    Z = self.value_emb(Xext)
 
     # Capas MIC
     for branches in self.layers:
-      outs = [br(Z) for br in branches]           # lista de [B, d, L+O]
-      Z = torch.stack(outs, dim=0).mean(dim=0)    # merge = promedio
+      outs = [br(Z) for br in branches]
+      Z = torch.stack(outs, dim=0).mean(dim=0)
 
     # Proyección y recorte
-    Yfull = self.head(Z)                            # [B, 1, L+O]
-    Yseasonal = Yfull[:, :, -self.output_len:]      # [B, 1, O]
+    Yfull = self.head(Z)
+    Yseasonal = Yfull[:, :, -self.output_len:]
     return Yseasonal

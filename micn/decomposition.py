@@ -3,14 +3,6 @@ import torch.nn as nn
 
 
 class MHDecomp(nn.Module):
-  """
-  Multi-scale Hybrid Decomposition
-  - Entrada: X [B, 1, L] (serie original en la ventana)
-  - Salida:
-      Xt [B, 1, L] (tendencia suavizada)
-      Xs [B, 1, L] (estacionalidad = X - Xt)
-  """
-
   def __init__(self, kernel_sizes=(12, 24, 48)):
     super().__init__()
     self.kernel_sizes = kernel_sizes
@@ -33,7 +25,6 @@ class MHDecomp(nn.Module):
       z = self._pad_reflect(X, k)
       z = pool(z)
       smoothed.append(z)
-    Xt = torch.stack(smoothed, dim=0).mean(
-        dim=0)  # promedio de escalas → tendencia
-    Xs = X - Xt                                     # residuo → estacionalidad
+    Xt = torch.stack(smoothed, dim=0).mean(dim=0)  # promedio de escalas → tendencia
+    Xs = X - Xt  # residuo → estacionalidad
     return Xt, Xs

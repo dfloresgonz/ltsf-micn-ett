@@ -16,25 +16,11 @@ def get_device():
   return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def train_and_eval_model(params):
-  """
-  params:
-    dataset: ETTh1|ETTh2|ETTm1|ETTm2
-    input_len: 96
-    output_len: 24|48|96|192|336|720
-    d_model: 64 (ej.)
-    n_layers: 1-2
-    scales: (12,24,48)
-    batch_size, epochs, lr
-  """
-  device = get_device()
-
-  # 1) Carga y ventanas
+def load_and_prepare_data(params):
   df = pd.read_csv(os.path.join("../data", f"{params['dataset']}.csv"))
   series = df["OT"].values.astype("float32")
 
-  X, Y = create_windows(
-      series, input_len=params["input_len"], output_len=params["output_len"])
+  X, Y = create_windows(series, input_len=params["input_len"], output_len=params["output_len"])
   (X_train, Y_train), (X_val, Y_val), (X_test, Y_test) = split_data(X, Y)
 
   train_loader, val_loader, test_loader, mean, std = make_dataloaders(
@@ -42,7 +28,10 @@ def train_and_eval_model(params):
       batch_size=params["batch_size"]
   )
 
-  # 2) Modelo
+  return train_loader, val_loader, test_loader, mean, std
+
+
+def build_model(params, device):
   model = MICNModel(
       input_len=params["input_len"],
       output_len=params["output_len"],
@@ -50,69 +39,132 @@ def train_and_eval_model(params):
       n_layers=params["n_layers"],
       scales=tuple(params["scales"])
   ).to(device)
+  return model
 
-  # 3) Optimizador y pérdida
-  optimizer = torch.optim.Adam(model.parameters(
-  ), lr=params["learning_rate"], weight_decay=params.get("weight_decay", 0.0))
+
+def setup_optimizer_and_loss(model, params):
+  optimizer = torch.optim.Adam(
+      model.parameters(),
+      lr=params["learning_rate"],
+      weight_decay=params.get("weight_decay", 0.0)
+  )
   loss_fn = nn.MSELoss()
+  return optimizer, loss_fn
 
-  # 4) Entrenamiento
-  with mlflow.start_run():
+
+def train_one_epoch(model, train_loader, loss_fn, optimizer, device):
+  model.train()
+  train_losses, train_maes = [], []
+
+  for xb, yb in train_loader:
+    xb, yb = xb.to(device), yb.to(device)
+    optimizer.zero_grad()
+    yhat, _, _ = model(xb)
+    loss = loss_fn(yhat, yb)
+    loss.backward()
+    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+    optimizer.step()
+
+    train_losses.append(loss.item())
+    train_maes.append(mae(yb, yhat).item())
+
+  return train_losses, train_maes
+
+
+def validate_one_epoch(model, val_loader, loss_fn, device):
+  model.eval()
+  val_losses, val_maes = [], []
+
+  with torch.no_grad():
+    for xb, yb in val_loader:
+      xb, yb = xb.to(device), yb.to(device)
+      yhat, _, _ = model(xb)
+      loss = loss_fn(yhat, yb)
+      val_losses.append(loss.item())
+      val_maes.append(mae(yb, yhat).item())
+
+  return val_losses, val_maes
+
+
+def train_model(model, train_loader, val_loader, test_loader, loss_fn, optimizer, device, params, batch_id, mean, std):
+  best_val = float("inf")
+
+  with mlflow.start_run(run_name=f"{params['dataset']}_H{params['output_len']}", tags={"batch_id": batch_id}):
     mlflow.log_params(params)
     mlflow.log_param("norm_mean", float(mean))
-    mlflow.log_param("norm_std",  float(std))
+    mlflow.log_param("norm_std", float(std))
 
-    best_val = float("inf")
     for epoch in range(params["epochs"]):
-      model.train()
-      train_losses = []
+      train_losses, train_maes = train_one_epoch(model, train_loader, loss_fn, optimizer, device)
+      val_losses, val_maes = validate_one_epoch(model, val_loader, loss_fn, device)
 
-      for xb, yb in train_loader:
-        xb, yb = xb.to(device), yb.to(device)  # xb:[B,1,L], yb:[B,1,O]
-        optimizer.zero_grad()
-        yhat, _, _ = model(xb)                # [B,1,O]
-        loss = loss_fn(yhat, yb)
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-        optimizer.step()
-        train_losses.append(loss.item())
-
-      # validación
-      model.eval()
-      val_losses = []
-      with torch.no_grad():
-        for xb, yb in val_loader:
-          xb, yb = xb.to(device), yb.to(device)
-          yhat, _, _ = model(xb)
-          loss = loss_fn(yhat, yb)
-          val_losses.append(loss.item())
-
-      tr_mse = sum(train_losses) / max(1, len(train_losses))
-      va_mse = sum(val_losses) / max(1, len(val_losses))
+      tr_mse = sum(train_losses) / len(train_losses) if train_losses else float("nan")
+      va_mse = sum(val_losses) / len(val_losses) if val_losses else float("nan")
+      tr_mae = sum(train_maes) / len(train_maes) if train_maes else float("nan")
+      va_mae = sum(val_maes) / len(val_maes) if val_maes else float("nan")
 
       mlflow.log_metric("train_mse", tr_mse, step=epoch)
-      mlflow.log_metric("val_mse",   va_mse, step=epoch)
-      print(f"[{params['dataset']} | H={params['output_len']}] "
-            f"Epoch {epoch+1}/{params['epochs']}  Train MSE={tr_mse:.4f}  Val MSE={va_mse:.4f}")
+      mlflow.log_metric("val_mse", va_mse, step=epoch)
+      mlflow.log_metric("train_mae", tr_mae, step=epoch)
+      mlflow.log_metric("val_mae", va_mae, step=epoch)
 
-      if va_mse < best_val:
-        best_val = va_mse
-        # guardar mejor estado (opcional)
-        torch.save(model.state_dict(), "best.pt")
-        mlflow.log_artifact("best.pt")
+      print(
+          f"[{params['dataset']} | H={params['output_len']}] "
+          f"Epoch {epoch+1}/{params['epochs']}  Train MSE={tr_mse:.4f}  Val MSE={va_mse:.4f} "
+          f"Train MAE={tr_mae:.4f}  Val MAE={va_mae:.4f}"
+      )
 
-    # 5) Test
-    model.eval()
-    test_losses_mse, test_losses_mae = [], []
-    with torch.no_grad():
-      for xb, yb in test_loader:
-        xb, yb = xb.to(device), yb.to(device)
-        yhat, _, _ = model(xb)
-        test_losses_mse.append(mse(yb, yhat).item())
-        test_losses_mae.append(mae(yb, yhat).item())
-
-    test_mse = sum(test_losses_mse) / max(1, len(test_losses_mse))
-    test_mae = sum(test_losses_mae) / max(1, len(test_losses_mae))
+    # Evaluación final
+    test_mse, test_mae_ = evaluate_on_test(model, test_loader, device)
     mlflow.log_metric("test_mse", test_mse)
-    mlflow.log_metric("test_mae", test_mae)
-    print(f"TEST  MSE={test_mse:.4f}  MAE={test_mae:.4f}")
+    mlflow.log_metric("test_mae", test_mae_)
+    print(f"TEST  MSE={test_mse:.4f}  MAE={test_mae_:.4f}")
+
+    if va_mse < best_val:
+      best_val = va_mse
+      torch.save(model.state_dict(), "best.pt")
+      mlflow.log_artifact("best.pt")
+
+  return best_val
+
+
+def evaluate_on_test(model, test_loader, device):
+  model.eval()
+  test_losses_mse, test_losses_mae = [], []
+
+  with torch.no_grad():
+    for xb, yb in test_loader:
+      xb, yb = xb.to(device), yb.to(device)
+      yhat, _, _ = model(xb)
+      test_losses_mse.append(mse(yb, yhat).item())
+      test_losses_mae.append(mae(yb, yhat).item())
+
+  test_mse = sum(test_losses_mse) / max(1, len(test_losses_mse))
+  test_mae = sum(test_losses_mae) / max(1, len(test_losses_mae))
+  return test_mse, test_mae
+
+
+def train_and_eval_model(params, batch_id):
+  # device setup
+  device = get_device()
+  print("Using device:", device)
+  print("batch_id:", batch_id)
+
+  # mlflow inicializar
+  experiment_sufix = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
+  experiment_name = f"MICN_H{params['output_len']}_{experiment_sufix}"
+  mlflow.set_experiment(experiment_name)
+
+  # 1) Carga y ventanas
+  train_loader, val_loader, test_loader, mean, std = load_and_prepare_data(params)
+
+  # 2) Modelo
+  model = build_model(params, device)
+
+  # 3) Optimizador y pérdida
+  optimizer, loss_fn = setup_optimizer_and_loss(model, params)
+
+  # 4) Entrenamiento y registro de metricas en mlflow
+  best_val = train_model(model, train_loader, val_loader, test_loader, loss_fn,
+                         optimizer, device, params, batch_id, mean, std)
+  return best_val

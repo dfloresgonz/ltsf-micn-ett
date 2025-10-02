@@ -17,8 +17,7 @@ class TrendRegression(nn.Module):
     self.head = nn.Linear(input_len, output_len, bias=True)
 
   def forward(self, Xt):
-    # Xt: [B, 1, L] → aplicar Linear en el eje temporal
     B, C, L = Xt.shape
     assert C == 1 and L == self.input_len
-    y = self.head(Xt.squeeze(1))   # [B, O]
-    return y.unsqueeze(1)          # [B, 1, O]
+    y = self.head(Xt.squeeze(1))
+    return y.unsqueeze(1)
