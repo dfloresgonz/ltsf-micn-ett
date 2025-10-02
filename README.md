@@ -103,6 +103,9 @@ flowchart LR
     I --> J
     J --> K[Y_pred]
 ```
+--
+
+![alt text](image-2.png)
 
 ### 🔍 Descripción de cada componente:
 
