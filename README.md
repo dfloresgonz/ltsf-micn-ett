@@ -187,3 +187,7 @@ params = {
   "learning_rate": 0.001
 }
 ```
+
+## Referencia
+
+- Huiqiang Wang, Jian Peng, Feihu Huang, Jince Wang, Junhui Chen, Yifei Xiao. *"MICN: Multi-scale Convolutional Networks for Long-Term Time Series Forecasting,"* 2023. [OpenReview](https://openreview.net/forum?id=zt53IDUR1U)
