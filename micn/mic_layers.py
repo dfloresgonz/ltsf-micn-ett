@@ -38,20 +38,20 @@ class _MICBranch(nn.Module):
     B, D, Lext = Xext.shape
 
     # Local module
-    loc = self.pool(Xext)               # [B, d, Lr]
-    loc = self.local_conv(loc)          # [B, d, Lr]
+    loc = self.pool(Xext)
+    loc = self.local_conv(loc)
     loc = self.act(loc)
 
     # Global isometric: conv con kernel = Lr
     # produce [B, d, 1], repetimos a Lr para continuidad residual
-    glob = self.global_conv(loc)        # [B, d, 1]
-    glob = glob.repeat(1, 1, loc.shape[-1])  # [B, d, Lr]
+    glob = self.global_conv(loc)
+    glob = glob.repeat(1, 1, loc.shape[-1])
 
     # Fusión simple local+global (suma)
     fused = self.act(loc + glob)
 
     # Upsampling a longitud extendida aproximada
-    up = self.up(fused)                 # [B, d, ~Lext]
+    up = self.up(fused)
     if up.shape[-1] < Lext:
       up = F.pad(up, (0, Lext - up.shape[-1]))
     elif up.shape[-1] > Lext:
@@ -91,7 +91,7 @@ class MICLayers(nn.Module):
     # Proyección final d_model→1
     self.head = nn.Conv1d(d_model, 1, kernel_size=1)
 
-  def forward(self, Xs):  # Xs: [B, 1, L]
+  def forward(self, Xs):
     B, C, L = Xs.shape
     assert C == 1 and L == self.input_len
 

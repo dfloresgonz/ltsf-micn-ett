@@ -6,20 +6,15 @@ class MHDecomp(nn.Module):
   def __init__(self, kernel_sizes=(12, 24, 48)):
     super().__init__()
     self.kernel_sizes = kernel_sizes
-    # AvgPool1d no tiene pesos; usamos padding por reflejo manualmente en forward
-    self.pools = nn.ModuleList(
-        [nn.AvgPool1d(k, stride=1, ceil_mode=False) for k in kernel_sizes])
+    self.pools = nn.ModuleList([nn.AvgPool1d(k, stride=1, ceil_mode=False) for k in kernel_sizes])
 
   def _pad_reflect(self, x, k):
-    # padding para mantener longitud tras avgpool con stride=1
     p = (k - 1) // 2
     if k % 2 == 0:
-      # mantener L exacto: pad asimétrico
       return nn.functional.pad(x, (p, p+1), mode="reflect")
     return nn.functional.pad(x, (p, p), mode="reflect")
 
   def forward(self, X):
-    # X: [B, 1, L]
     smoothed = []
     for k, pool in zip(self.kernel_sizes, self.pools):
       z = self._pad_reflect(X, k)
