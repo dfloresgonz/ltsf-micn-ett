@@ -3,6 +3,7 @@ import mlflow
 import torch
 import torch.nn as nn
 import pandas as pd
+import numpy as np
 from micn import MICNModel
 from utils.windowing import create_windows, split_data, make_dataloaders
 from utils.metrics import mse, mae
@@ -18,9 +19,10 @@ def get_device():
 
 def load_and_prepare_data(params):
   df = pd.read_csv(os.path.join("../data", f"{params['dataset']}.csv"))
-  series = df["OT"].values.astype("float32")
+  # series = df["OT"].values.astype("float32")
+  features = df.drop(columns=["date"]).values.astype("float32")
 
-  X, Y = create_windows(series, input_len=params["input_len"], output_len=params["output_len"])
+  X, Y = create_windows(features, input_len=params["input_len"], output_len=params["output_len"])
   (X_train, Y_train), (X_val, Y_val), (X_test, Y_test) = split_data(X, Y)
 
   train_loader, val_loader, test_loader, mean, std = make_dataloaders(
@@ -28,16 +30,18 @@ def load_and_prepare_data(params):
       batch_size=params["batch_size"]
   )
 
-  return train_loader, val_loader, test_loader, mean, std
+  num_features = features.shape[1]
+  return train_loader, val_loader, test_loader, mean, std, num_features
 
 
-def build_model(params, device):
+def build_model(params, device, num_features):
   model = MICNModel(
       input_len=params["input_len"],
       output_len=params["output_len"],
       d_model=params["d_model"],
       n_layers=params["n_layers"],
-      scales=tuple(params["scales"])
+      scales=tuple(params["scales"]),
+      num_features=num_features
   ).to(device)
   return model
 
@@ -91,8 +95,8 @@ def train_model(model, train_loader, val_loader, test_loader, loss_fn, optimizer
 
   with mlflow.start_run(run_name=f"{params['dataset']}_H{params['output_len']}", tags={"batch_id": batch_id}):
     mlflow.log_params(params)
-    mlflow.log_param("norm_mean", float(mean))
-    mlflow.log_param("norm_std", float(std))
+    mlflow.log_param("norm_mean", np.round(mean.flatten(), 4).tolist())
+    mlflow.log_param("norm_std", np.round(std.flatten(), 4).tolist())
 
     for epoch in range(params["epochs"]):
       train_losses, train_maes = train_one_epoch(model, train_loader, loss_fn, optimizer, device)
@@ -152,14 +156,14 @@ def train_and_eval_model(params, batch_id):
 
   # mlflow inicializar
   experiment_sufix = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
-  experiment_name = f"MICN_H{params['output_len']}_{experiment_sufix}"
+  experiment_name = f"MICN_H{params['output_len']}_{experiment_sufix}_multifeature"
   mlflow.set_experiment(experiment_name)
 
   # 1) Carga y ventanas
-  train_loader, val_loader, test_loader, mean, std = load_and_prepare_data(params)
+  train_loader, val_loader, test_loader, mean, std, num_features = load_and_prepare_data(params)
 
   # 2) Modelo
-  model = build_model(params, device)
+  model = build_model(params, device, num_features)
 
   # 3) Optimizador y pérdida
   optimizer, loss_fn = setup_optimizer_and_loss(model, params)

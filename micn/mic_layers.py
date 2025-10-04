@@ -72,16 +72,17 @@ class MICLayers(nn.Module):
   - Recorte a los últimos O pasos
   """
 
-  def __init__(self, input_len: int, output_len: int, d_model=64, n_layers=1, scales=(12, 24, 48)):
+  def __init__(self, input_len: int, output_len: int, d_model=64, n_layers=1, scales=(12, 24, 48), num_features=1):
     super().__init__()
     self.input_len = input_len
     self.output_len = output_len
     self.d_model = d_model
     self.n_layers = n_layers
     self.scales = scales
+    self.num_features = num_features
 
     # Value embedding 1→d_model
-    self.value_emb = nn.Conv1d(1, d_model, kernel_size=1)
+    self.value_emb = nn.Conv1d(num_features, d_model, kernel_size=1)
 
     # Construimos ramas por escala (en cada capa MIC)
     self.layers = nn.ModuleList([nn.ModuleList([_MICBranch(d_model, input_len, output_len, s) for s in scales])
@@ -93,10 +94,11 @@ class MICLayers(nn.Module):
 
   def forward(self, Xs):
     B, C, L = Xs.shape
-    assert C == 1 and L == self.input_len
+    assert C == self.num_features and L == self.input_len, \
+        f"Expected Xs shape [B, {self.num_features}, {self.input_len}], got {Xs.shape}"
 
     # Extender con ceros para cubrir el futuro
-    zeros = torch.zeros(B, 1, self.output_len,
+    zeros = torch.zeros(B, self.num_features, self.output_len,
                         device=Xs.device, dtype=Xs.dtype)
     Xext = torch.cat([Xs, zeros], dim=-1)
 

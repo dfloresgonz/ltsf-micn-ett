@@ -3,8 +3,8 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 
 
-def create_windows(series, input_len=96, output_len=24):
-  data = np.asarray(series, dtype=np.float32)
+def create_windows(features, input_len=96, output_len=24):
+  data = np.asarray(features, dtype=np.float32)
   X, Y = [], []
   L = len(data)
   for i in range(L - input_len - output_len + 1):
@@ -28,10 +28,10 @@ class WindowDataset(Dataset):
   def __init__(self, X, Y, mean=None, std=None):
     # normalización (z-score) usando stats del train
     if mean is None:
-      mean = X.mean()
-    if std is None or std == 0:
-      std = X.std() + 1e-6
-    self.mean, self.std = float(mean), float(std)
+      mean = X.mean(axis=(0, 1), keepdims=True)
+    if std is None or np.any(std == 0):
+      std = X.std(axis=(0, 1), keepdims=True) + 1e-6
+    self.mean, self.std = mean, std
     self.X = (X - self.mean) / self.std
     self.Y = (Y - self.mean) / self.std
 
@@ -39,14 +39,18 @@ class WindowDataset(Dataset):
     return len(self.X)
 
   def __getitem__(self, idx):
-    x = torch.tensor(self.X[idx], dtype=torch.float32).unsqueeze(0)
-    y = torch.tensor(self.Y[idx], dtype=torch.float32).unsqueeze(0)
+    # x = torch.tensor(self.X[idx], dtype=torch.float32).unsqueeze(0)
+    # y = torch.tensor(self.Y[idx], dtype=torch.float32).unsqueeze(0)
+    x = torch.tensor(self.X[idx], dtype=torch.float32).permute(1, 0)
+    y = torch.tensor(self.Y[idx], dtype=torch.float32).permute(1, 0)
     return x, y
 
 
 def make_dataloaders(X_train, Y_train, X_val, Y_val, X_test, Y_test,
                      batch_size=32, num_workers=0):
-  mean, std = X_train.mean(), X_train.std()
+  # mean, std = X_train.mean(), X_train.std()
+  mean = X_train.mean(axis=(0, 1), keepdims=True)
+  std = X_train.std(axis=(0, 1), keepdims=True) + 1e-6
   ds_train = WindowDataset(X_train, Y_train, mean, std)
   ds_val = WindowDataset(X_val,   Y_val,   mean, std)
   ds_test = WindowDataset(X_test,  Y_test,  mean, std)
