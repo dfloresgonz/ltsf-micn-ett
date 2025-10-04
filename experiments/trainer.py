@@ -22,7 +22,11 @@ def load_and_prepare_data(params):
   # series = df["OT"].values.astype("float32")
   features = df.drop(columns=["date"]).values.astype("float32")
 
-  X, Y = create_windows(features, input_len=params["input_len"], output_len=params["output_len"])
+  target_col = "OT"
+  target_idx = df.drop(columns=["date"]).columns.get_loc(target_col)
+
+  X, Y_all = create_windows(features, input_len=params["input_len"], output_len=params["output_len"])
+  Y = Y_all[:, :, [target_idx]]
   (X_train, Y_train), (X_val, Y_val), (X_test, Y_test) = split_data(X, Y)
 
   train_loader, val_loader, test_loader, mean, std = make_dataloaders(
